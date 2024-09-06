@@ -8,5 +8,12 @@
       <jdbc-url>jdbc:sqlite:order_details.db</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
     </data-source>
+    <data-source source="LOCAL" name="NEON info" uuid="c574a0c2-bef5-4656-bb33-eeb1ff32e27b">
+      <driver-ref>postgresql</driver-ref>
+      <synchronize>true</synchronize>
+      <jdbc-driver>org.postgresql.Driver</jdbc-driver>
+      <jdbc-url>jdbc:postgresql://ep-empty-block-a56m3gjb.us-east-2.aws.neon.tech:5432/dinfo</jdbc-url>
+      <working-dir>$ProjectFileDir$</working-dir>
+    </data-source>
   </component>
 </project>

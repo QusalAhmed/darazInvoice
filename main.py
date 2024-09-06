@@ -10,6 +10,9 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.pagesizes import A5, landscape
 from datetime import datetime
 
+# import from local
+from save_parcel import SaveParcel
+
 # connect to database
 conn = sqlite3.connect('order_details.db')
 cursor = conn.cursor()
@@ -60,12 +63,12 @@ def create_watermark(text: str, overlay_page_size: tuple, x=10, y=None, font_siz
         width = 200
         padding = 10
         can.roundRect(x - padding, y - padding - height, width + 2 * padding, height + 2 * padding, 5)
-    lin_space = 20
+    lin_space = 10
     if y is None:
-        y = int(overlay_page_size[1])
+        y = int(overlay_page_size[1]) - 12
     for line in text.split('\n'):
         can.drawString(x, y - lin_space, line)
-        lin_space += 15
+        lin_space += font_size + 5
     can.restoreState()
     can.save()
     packet.seek(0)
@@ -131,24 +134,35 @@ for file in os.listdir(directory):
                 raise Exception
             sku = row['sellerSku']
             original_sku = identical(identical(sku.split('-')[0]) + '-' + identical(sku.split('-')[1].split('_')[0]))
+            if row['shippingProvider'] == 'BD-RedX-API':
+                print('Redex:', order_id, row['trackingCode'])
+                original_sku = 'Redex'
             order_time = datetime.strptime(row['createTime'], '%d %b %Y %H:%M')
             shipping_cost = row['shippingFee']
             unit_price = row['unitPrice']
             pay_method = row['payMethod']
             shipping_city = row['shippingCity']
-            cursor.execute('INSERT INTO csv_data VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            tracking_code = row['trackingCode']
+            lazadaSku = row['lazadaSku']
+            cursor.execute('INSERT INTO csv_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                            (order_id, sku, order_time.timestamp(), shipping_cost, unit_price, pay_method,
-                            shipping_city, original_sku.title()))
+                            shipping_city, original_sku.title(), tracking_code, lazadaSku))
             # Minimal pricing check
             cursor.execute('SELECT price FROM pricing WHERE product_tag = ?', (original_sku.split('-')[0],))
-            min_price = cursor.fetchone()[0] * (1 - CLEAR / 100)
+            try:
+                min_price = cursor.fetchone()[0] * (1 - CLEAR / 100)
+            except TypeError:
+                if original_sku != 'Redex':
+                    print(f'Product tag not found: {original_sku}')
+                min_price = 0
             if unit_price < min_price:
                 print(f'Price is less than expected ({order_id}): {unit_price} ({min_price})')
 conn.commit()
 
 # Insert to pdf_data database
-# cursor.execute('INSERT INTO pdf_data (order_number, identity_sku) '
-#                'SELECT order_number, GROUP_CONCAT(identical_sku) FROM csv_data GROUP BY order_number')
+# cursor.execute("""INSERT INTO pdf_info (order_number, identity_sku, quantity)
+#                SELECT order_number, GROUP_CONCAT(identical_sku), COUNT(identical_sku)
+#                FROM csv_data GROUP BY order_number""")
 # conn.commit()
 
 # Working with pdf file
@@ -160,7 +174,7 @@ with open(merged_pdf, 'rb') as file:
         page_size = (page.mediabox.width, page.mediabox.height)
         page_text = page.extract_text()
         try:
-            order_id = page_text.split('Tracking Number')[1].split('COD')[1].split('\n')[1]
+            order_id = page_text.split('KG')[0].split('\n')[-2].strip()
         except IndexError:
             if page.extract_text() != '':
                 print(f'Page no {page_num} Skipped =>', "Can't find order number")
@@ -173,7 +187,7 @@ with open(merged_pdf, 'rb') as file:
             cursor.execute('SELECT identical_sku FROM csv_data WHERE order_number = ?', (order_id,))
             sku = cursor.fetchall()
         try:
-            quantity = int(page_text.split('Item Quantity:')[1].split('Order Creation')[0])
+            quantity = int(page_text.split('Item Qty:')[1].splitlines()[0])
         except IndexError:
             print("Can't find quantity")
             sku_str = 'Error quantity: ' + ','.join(x[0] for x in sku)
@@ -189,8 +203,19 @@ with open(merged_pdf, 'rb') as file:
             print("Can't find phone number")
             sku_str = 'Error phone: ' + ','.join(x[0] for x in sku)
             phone = order_id
+        try:
+            shop_name = page_text.split('Shipper Name:')[1].splitlines()[0]
+        except IndexError:
+            print("Can't find shop name")
+            shop_name = ''
         cursor.execute('INSERT INTO pdf_data (order_number, seller_sku, page_number, phone) VALUES (?, ?, ?, ?)',
                        (order_id, sku_str, page_num, phone))
+        cursor.execute('SELECT tracking_code FROM csv_data WHERE order_number = ?',(order_id,))
+        tracking_code = ','.join(x[0] for x in cursor.fetchall())
+        cursor.execute('SELECT lazadaSku FROM csv_data WHERE order_number = ?', (order_id,))
+        lazada_sku = ','.join(x[0] for x in cursor.fetchall())
+        if not SaveParcel(order_id, tracking_code, shop_name, ','.join(x[0] for x in sku), lazada_sku).save():
+            print('Failed to save parcel', order_id, tracking_code, shop_name, ','.join(x[0] for x in sku), lazada_sku)
         print(order_id, sku_str)
         # Outside delivery
         outside_delivery()
@@ -231,13 +256,13 @@ brief = ''
 for row in cursor.fetchall():
     brief += f'{row[0]} : {str(row[1])} ({count + 1} - {row[1] + count})' + '\n'
     count += row[1]
-index_page = PyPDF2.PdfReader(create_watermark(brief, landscape(A5), 30, y=page_size[1] - 15))
+index_page = PyPDF2.PdfReader(create_watermark(brief, landscape(A5), 30, y=page_size[1] - 30))
 index_page.pages[0].merge_page(brief_heading_page.pages[0])
 pw.add_page(index_page.pages[0])
 current_date = datetime.now().strftime('%d %B %Y')
 print('Sorting page', end='')  # Progress bar initialization
 outside_delivery = ''
-safety_text = "  wfZ‡i Kv‡Pi wRwbm Av‡Q\n\nZvB e· †P‡c †QvU Ki‡eb bv"
+safety_text = "            mveavb!!\n  wfZ‡i Kv‡Pi wRwbm Av‡Q\nZvB e· †P‡c †QvU Ki‡eb bv"
 with open(merged_pdf, 'rb') as file:
     reader = PyPDF2.PdfReader(file)
     for index, (order_id, _, page_num) in enumerate(label):
@@ -250,10 +275,10 @@ with open(merged_pdf, 'rb') as file:
         page = reader.pages[page_num]
         # Print date, page number and safety text
         page_size = (page.mediabox.width, page.mediabox.height)
-        page.merge_page(PyPDF2.PdfReader(create_watermark(str(current_date), page_size, y=30)).pages[0])
+        page.merge_page(PyPDF2.PdfReader(create_watermark(str(current_date), page_size, y=20)).pages[0])
         page.merge_page(PyPDF2.PdfReader(create_watermark(
-            str(index + 1), page_size, page_size[0] - 30, 30, 12)).pages[0])
-        safety_page = PyPDF2.PdfReader(create_watermark(safety_text, page_size, page_size[0] / 2 + 20, y=0,
+            str(index + 1), page_size, page_size[0] - 30, 20, 12)).pages[0])
+        safety_page = PyPDF2.PdfReader(create_watermark(safety_text, page_size, page_size[0] / 2 + 10, y=2,
                                                         font_size=20, font='BanglaFont', border=True)).pages[0]
         safety_page.add_transformation(Transformation().rotate(15))
         safety_page.add_transformation(Transformation().translate(30, -10))
