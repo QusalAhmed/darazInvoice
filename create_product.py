@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import datetime
 from bs4 import BeautifulSoup
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment
+from openpyxl.styles import Font, PatternFill, Border, Alignment
 from oauth2client.service_account import ServiceAccountCredentials
 from gimini import model
 
@@ -18,13 +18,13 @@ from gimini import model
 conn = sqlite3.connect('order_details.db')
 cursor = conn.cursor()
 cursor_view = sqlite3.connect('order_details.db').cursor()
-cursor.execute('DELETE FROM new_product where TRUE')
+cursor.execute('DELETE FROM new_product WHERE TRUE')
 
 # Help image link
 for serial, shop_name in cursor.execute('SELECT serial, shop_name FROM unique_image').fetchall():
     print(f'{serial}. {shop_name}')
 # cursor.execute('SELECT url FROM unique_image WHERE serial = ?', (int(input('Enter serial: ')),))
-cursor.execute('SELECT url FROM unique_image WHERE serial = ?', (7,))
+cursor.execute('SELECT url FROM unique_image WHERE serial = ?', (10,))
 help_image = cursor.fetchone()[0]
 
 
@@ -45,7 +45,13 @@ def cdn_link(link: str):
 
 
 def image_dimensions(url):
-    response = requests.get(url)
+    # request the image from the URL until it is successfully fetched
+    while True:
+        try:
+            response = requests.get(url)
+            break
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            time.sleep(5)
     img = Image.open(BytesIO(response.content))
     return img.size  # returns (width, height)
 
@@ -60,6 +66,21 @@ def add_image_element():
     image_element['src'] = image_url
     paragraph.append(image_element)
 
+
+def insert_link(row, column, link):
+    cell = excel_sheet.cell(row=row, column=column)
+    cell.value = link
+    cell.hyperlink = link
+    cell.style = "Hyperlink"
+
+def copy_cell(source_cell, target_cell):
+    target_cell.value = source_cell.value  # Copy value
+    if source_cell.has_style:  # Check if the source cell has formatting
+        target_cell.font = source_cell.font  # Copy font
+        target_cell.border = source_cell.border  # Copy border
+        target_cell.fill = source_cell.fill  # Copy fill (background color)
+        target_cell.alignment = source_cell.alignment  # Copy alignment
+        target_cell.number_format = source_cell.number_format  # Copy number format
 
 # Define the scope
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -80,7 +101,7 @@ df = pd.read_excel(file_path, sheet_name='PhoneCases', header=1)
 excel_sheet = excel['PhoneCases']
 sheet = spreadsheet.worksheet('Phone Case')
 
-print('Creating', end='')
+print('Creating new product records...', end='')
 sel_row = 3
 # Update records
 product = None
@@ -91,6 +112,7 @@ for index, row in enumerate(sheet.get_all_records()):
     if cursor_view.fetchall():
         continue
     if product != product_name_eng:
+        print(f'\n{index + 1}', end='')
         conn.commit()
         excel.save(file_path)
         while True:
@@ -98,11 +120,11 @@ for index, row in enumerate(sheet.get_all_records()):
                 response = model.generate_content([f":Write me one new SEO friendly title based on: {product_name_eng}",
                                                   'If necessary you can add new words to the title',
                                                   'Only write title, don\'t add extra information'])
+                auto_text = response.text.replace('#', '').replace('*', '').strip()
                 break
             except Exception as e:
                 print(e)
                 time.sleep(5)
-        auto_text = response.text.replace('#', '').replace('*', '').strip()
         if '\n' in auto_text or auto_text == '':
             auto_title = input(f"Enter product name for {product_name_eng}({response.text}): ")
         else:
@@ -111,7 +133,6 @@ for index, row in enumerate(sheet.get_all_records()):
         random.shuffle(main_image_series)
         product = product_name_eng
         unique_ext = ' QR:' + time.strftime('%y%m%d%H%M%S')
-        print('')
         seller_sku = row['Seller SKU'].title()
         if seller_sku == '':
             while True:
@@ -119,11 +140,11 @@ for index, row in enumerate(sheet.get_all_records()):
                     response = model.generate_content(
                         ["Give me only one product identification text of product title:"
                          f" {product_name_eng}"])
+                    auto_text = response.text.replace('#', '').replace('*', '').strip()
                     break
                 except Exception as e:
                     print(e)
                     time.sleep(5)
-            auto_text = response.text.replace('#', '').replace('*', '').strip()
             if '\n' in auto_text or auto_text == '':
                 seller_sku = input(f"Enter Seller SKU for {product_name_eng}: ")
             else:
@@ -151,28 +172,23 @@ for index, row in enumerate(sheet.get_all_records()):
         paragraph.append(text_element)
 
         for serial, image_series in enumerate(main_image_series):
-            # if image_series == 7:
-            #     image_url = row[f'Product Images{image_series + 1}']
-            #     if image_url != '':
-            #         add_image_element()
-            #     image_url = help_image
-            # else:
-            #     image_url = row[f'Product Images{image_series + 1}']
             image_url = row[f'Product Images{image_series + 1}']
             if image_url == 'https://static-01.daraz.com.bd/p/132f1553877bbf8f0314d2cddd3a401c.png':
                 image_url = help_image
             if image_url == '':
                 continue
             image_url = cdn_link(image_url)
-            excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}'), value=image_url)
-            # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}')).hyperlink = image_url
+            insert_link(sel_row, column(f'Product Images{serial + 2}'), image_url)
+            # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}'), value=image_url)
+            # # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}')).hyperlink = image_url
             # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}')).style = "Hyperlink"
             add_image_element()
             print(' *', end='')
     else:
         # Copy previous row to current row
         for col in range(4, 11):
-            excel_sheet.cell(row=sel_row, column=col, value=excel_sheet.cell(row=sel_row - 1, column=col).value)
+            # excel_sheet.cell(row=sel_row, column=col, value=excel_sheet.cell(row=sel_row - 1, column=col).value)
+            copy_cell(excel_sheet.cell(row=sel_row - 1, column=col), excel_sheet.cell(row=sel_row, column=col))
     excel_sheet.cell(row=sel_row, column=column('Group No'), value=product_name_eng)
     excel_sheet.cell(row=sel_row, column=column('*Product Name(English)'), value=auto_title + unique_ext)
     product_name_bn = row['Product name (Bangla)'] + unique_ext
@@ -180,10 +196,12 @@ for index, row in enumerate(sheet.get_all_records()):
     print(' *', end='')
     # Image, Description, SKU
     image_url = cdn_link(row[f'Product Images1'])
-    excel_sheet.cell(row=sel_row, column=column('*Product Images1'), value=image_url)
+    insert_link(sel_row, column('*Product Images1'), image_url)
+    insert_link(sel_row, column('White Background Image'), image_url)
+    # excel_sheet.cell(row=sel_row, column=column('*Product Images1'), value=image_url)
     # excel_sheet.cell(row=sel_row, column=column('*Product Images1')).hyperlink = image_url
     # excel_sheet.cell(row=sel_row, column=column('*Product Images1')).style = "Hyperlink"
-    excel_sheet.cell(row=sel_row, column=column('White Background Image'), value=image_url)
+    # excel_sheet.cell(row=sel_row, column=column('White Background Image'), value=image_url)
     # excel_sheet.cell(row=sel_row, column=column('White Background Image')).hyperlink = image_url
     # excel_sheet.cell(row=sel_row, column=column('White Background Image')).style = "Hyperlink"
     # SKU, Price
@@ -194,7 +212,8 @@ for index, row in enumerate(sheet.get_all_records()):
         excel_sheet.cell(row=sel_row, column=column('Color Family'), value=color_family)
     excel_sheet.cell(row=sel_row, column=column('SellerSKU'), value=seller_sku + '-' + color_family)
     sku_image = row['SKU Image']
-    excel_sheet.cell(row=sel_row, column=column('Images1'), value=cdn_link(sku_image))
+    insert_link(sel_row, column('Images1'), cdn_link(sku_image))
+    # excel_sheet.cell(row=sel_row, column=column('Images1'), value=cdn_link(sku_image))
     # excel_sheet.cell(row=sel_row, column=column('Images1')).hyperlink = cdn_link(sku_image)
     # excel_sheet.cell(row=sel_row, column=column('Images1')).style = "Hyperlink"
     excel_sheet.cell(row=sel_row, column=column('*Quantity'), value='1000')
@@ -248,9 +267,9 @@ for index, row in enumerate(sheet.get_all_records()):
         line.append(line_str)
     excel_sheet.cell(row=sel_row, column=df.columns.get_loc('Highlights') + 1, value=str(soup))
     # format row as wrap text
-    for cell in excel_sheet[f'{sel_row}:{sel_row}']:
-        cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+    # for cell in excel_sheet[f'{sel_row}:{sel_row}']:
+    #     cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
     # excel_sheet.row_dimensions[sel_row].height = 100
     sel_row += 1
-    # if sel_row > 14:
-    #     break
+    if sel_row > 6:
+        break
