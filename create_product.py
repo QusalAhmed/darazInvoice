@@ -19,12 +19,13 @@ conn = sqlite3.connect('order_details.db')
 cursor = conn.cursor()
 cursor_view = sqlite3.connect('order_details.db').cursor()
 cursor.execute('DELETE FROM new_product WHERE TRUE')
+conn.commit()
 
 # Help image link
 for serial, shop_name in cursor.execute('SELECT serial, shop_name FROM unique_image').fetchall():
     print(f'{serial}. {shop_name}')
 # cursor.execute('SELECT url FROM unique_image WHERE serial = ?', (int(input('Enter serial: ')),))
-cursor.execute('SELECT url FROM unique_image WHERE serial = ?', (10,))
+cursor.execute('SELECT url FROM unique_image WHERE serial = ?', (12,))
 help_image = cursor.fetchone()[0]
 
 
@@ -33,14 +34,17 @@ def column(header_name):
 
 
 def cdn_link(link: str):
+    if link == '':
+        return link
     full_link = link.split('_')[0].strip()
-    if 'https://img.drz.lazcdn' in full_link:
+    if 'img.drz.lazcdn.com/static/bd/p/' in full_link:
+        image_code = full_link.split('static/bd/p/')[1]
+        link = 'https://static-01.daraz.com.bd/p/' + image_code
+    elif 'static-01.daraz.com.bd/p/' in full_link:
         link = full_link
     else:
-        try:
-            link = 'https://img.drz.lazcdn.com/static/bd/p/' + full_link.split('/p/')[1]
-        except IndexError:
-            link = full_link
+        print(f'New link: {link}')
+        link = full_link
     return link + f'?q={str(time.time()).replace(".", "")}'
 
 
@@ -70,17 +74,18 @@ def add_image_element():
 def insert_link(row, column, link):
     cell = excel_sheet.cell(row=row, column=column)
     cell.value = link
-    cell.hyperlink = link
-    cell.style = "Hyperlink"
+    # cell.hyperlink = link
+    # cell.style = "Hyperlink"
 
-def copy_cell(source_cell, target_cell):
-    target_cell.value = source_cell.value  # Copy value
-    if source_cell.has_style:  # Check if the source cell has formatting
-        target_cell.font = source_cell.font  # Copy font
-        target_cell.border = source_cell.border  # Copy border
-        target_cell.fill = source_cell.fill  # Copy fill (background color)
-        target_cell.alignment = source_cell.alignment  # Copy alignment
-        target_cell.number_format = source_cell.number_format  # Copy number format
+
+# def copy_cell(source_cell, target_cell):
+#     target_cell.value = source_cell.value  # Copy value
+#     if source_cell.has_style:  # Check if the source cell has formatting
+#         target_cell.font = source_cell.font  # Copy font
+#         target_cell.border = source_cell.border  # Copy border
+#         target_cell.fill = source_cell.fill  # Copy fill (background color)
+#         target_cell.alignment = source_cell.alignment  # Copy alignment
+#         target_cell.number_format = source_cell.number_format  # Copy number format
 
 # Define the scope
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -111,19 +116,23 @@ for index, row in enumerate(sheet.get_all_records()):
     cursor_view.execute('SELECT * FROM new_product WHERE title = ?', (product_name_eng,))
     if cursor_view.fetchall():
         continue
+    sku_image = row['SKU Image']
     if product != product_name_eng:
-        print(f'\n{index + 1}', end='')
+        print(f'\n{index + 1} ', end='')
         conn.commit()
         excel.save(file_path)
         while True:
             try:
-                response = model.generate_content([f":Write me one new SEO friendly title based on: {product_name_eng}",
-                                                  'If necessary you can add new words to the title',
-                                                  'Only write title, don\'t add extra information'])
+                response = model.generate_content(
+                    [f":Write me one new SEO friendly title based on: {product_name_eng}",
+                     'If necessary you can add new words to the title to make it more SEO friendly',
+                     'Only write title, don\'t add extra information'])
                 auto_text = response.text.replace('#', '').replace('*', '').strip()
                 break
             except Exception as e:
                 print(e)
+                if '429 Resource has been exhausted (e.g. check quota).' in str(e):
+                    time.sleep(30)
                 time.sleep(5)
         if '\n' in auto_text or auto_text == '':
             auto_title = input(f"Enter product name for {product_name_eng}({response.text}): ")
@@ -144,6 +153,8 @@ for index, row in enumerate(sheet.get_all_records()):
                     break
                 except Exception as e:
                     print(e)
+                    if '429 Resource has been exhausted (e.g. check quota).' in str(e):
+                        time.sleep(30)
                     time.sleep(5)
             if '\n' in auto_text or auto_text == '':
                 seller_sku = input(f"Enter Seller SKU for {product_name_eng}: ")
@@ -152,8 +163,7 @@ for index, row in enumerate(sheet.get_all_records()):
         cursor.execute('SELECT * FROM new_product WHERE seller_sku = ?', (seller_sku,))
         if cursor.fetchall():
             seller_sku = seller_sku + '~' + random.randint(100, 999).__str__()
-        cursor.execute('INSERT INTO new_product VALUES (?, ?, ?)',
-                       (product_name_eng, seller_sku, index + 1))
+        cursor.execute('INSERT INTO new_product VALUES (?, ?, ?)', (product_name_eng, seller_sku, index + 1))
 
         # Main image, Description
         soup = BeautifulSoup('', 'html.parser')
@@ -172,38 +182,29 @@ for index, row in enumerate(sheet.get_all_records()):
         paragraph.append(text_element)
 
         for serial, image_series in enumerate(main_image_series):
-            image_url = row[f'Product Images{image_series + 1}']
+            image_url = row[f'Product Images{image_series + 1}'].strip()
             if image_url == 'https://static-01.daraz.com.bd/p/132f1553877bbf8f0314d2cddd3a401c.png':
                 image_url = help_image
             if image_url == '':
                 continue
             image_url = cdn_link(image_url)
             insert_link(sel_row, column(f'Product Images{serial + 2}'), image_url)
-            # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}'), value=image_url)
-            # # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}')).hyperlink = image_url
-            # excel_sheet.cell(row=sel_row, column=column(f'Product Images{serial + 2}')).style = "Hyperlink"
             add_image_element()
-            print(' *', end='')
+            print('* ', end='')
     else:
         # Copy previous row to current row
-        for col in range(4, 11):
-            # excel_sheet.cell(row=sel_row, column=col, value=excel_sheet.cell(row=sel_row - 1, column=col).value)
-            copy_cell(excel_sheet.cell(row=sel_row - 1, column=col), excel_sheet.cell(row=sel_row, column=col))
+        for col in range(4, 13):
+            excel_sheet.cell(row=sel_row, column=col, value=excel_sheet.cell(row=sel_row - 1, column=col).value)
+            # copy_cell(excel_sheet.cell(row=sel_row - 1, column=col), excel_sheet.cell(row=sel_row, column=col))
     excel_sheet.cell(row=sel_row, column=column('Group No'), value=product_name_eng)
     excel_sheet.cell(row=sel_row, column=column('*Product Name(English)'), value=auto_title + unique_ext)
     product_name_bn = row['Product name (Bangla)'] + unique_ext
     excel_sheet.cell(row=sel_row, column=column('Product Name(Bengali) look function'), value=product_name_bn)
-    print(' *', end='')
+    print('* ', end='')
     # Image, Description, SKU
     image_url = cdn_link(row[f'Product Images1'])
     insert_link(sel_row, column('*Product Images1'), image_url)
     insert_link(sel_row, column('White Background Image'), image_url)
-    # excel_sheet.cell(row=sel_row, column=column('*Product Images1'), value=image_url)
-    # excel_sheet.cell(row=sel_row, column=column('*Product Images1')).hyperlink = image_url
-    # excel_sheet.cell(row=sel_row, column=column('*Product Images1')).style = "Hyperlink"
-    # excel_sheet.cell(row=sel_row, column=column('White Background Image'), value=image_url)
-    # excel_sheet.cell(row=sel_row, column=column('White Background Image')).hyperlink = image_url
-    # excel_sheet.cell(row=sel_row, column=column('White Background Image')).style = "Hyperlink"
     # SKU, Price
     color_family = row['Color Family'].title()
     try:
@@ -213,11 +214,8 @@ for index, row in enumerate(sheet.get_all_records()):
     excel_sheet.cell(row=sel_row, column=column('SellerSKU'), value=seller_sku + '-' + color_family)
     sku_image = row['SKU Image']
     insert_link(sel_row, column('Images1'), cdn_link(sku_image))
-    # excel_sheet.cell(row=sel_row, column=column('Images1'), value=cdn_link(sku_image))
-    # excel_sheet.cell(row=sel_row, column=column('Images1')).hyperlink = cdn_link(sku_image)
-    # excel_sheet.cell(row=sel_row, column=column('Images1')).style = "Hyperlink"
     excel_sheet.cell(row=sel_row, column=column('*Quantity'), value='1000')
-    price = int(row['Price']) + 10
+    price = int(row['Price']) + 20
     excel_sheet.cell(row=sel_row, column=column('*Price'), value=str(max(round((price * 1.5) / 50) * 50, 120)))
     excel_sheet.cell(row=sel_row, column=column('SpecialPrice'), value=str(price))
     excel_sheet.cell(row=sel_row, column=column('SpecialPrice Start'),
@@ -267,9 +265,9 @@ for index, row in enumerate(sheet.get_all_records()):
         line.append(line_str)
     excel_sheet.cell(row=sel_row, column=df.columns.get_loc('Highlights') + 1, value=str(soup))
     # format row as wrap text
-    # for cell in excel_sheet[f'{sel_row}:{sel_row}']:
-    #     cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
-    # excel_sheet.row_dimensions[sel_row].height = 100
+    for cell in excel_sheet[f'{sel_row}:{sel_row}']:
+        cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+    excel_sheet.row_dimensions[sel_row].height = 100
     sel_row += 1
-    if sel_row > 6:
-        break
+    # if sel_row > 6:
+    #     break

@@ -1,14 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="DataSourceManagerImpl" format="xml" multifile-model="true">
-    <data-source source="LOCAL" name="Order Details" uuid="5d2b6146-7181-4b48-9fa2-977f6336f44c">
+    <data-source source="LOCAL" name="order_details" uuid="26081ae5-d8a4-4a45-9dde-ccdfa180da40">
       <driver-ref>sqlite.xerial</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.sqlite.JDBC</jdbc-driver>
-      <jdbc-url>jdbc:sqlite:order_details.db</jdbc-url>
+      <jdbc-url>jdbc:sqlite:C:\Users\Qusal\OneDrive - Shahjalal University of Science and Technology\darazInvoice\order_details.db</jdbc-url>
       <working-dir>$ProjectFileDir$</working-dir>
+      <libraries>
+        <library>
+          <url>file://$APPLICATION_CONFIG_DIR$/jdbc-drivers/Xerial SQLiteJDBC/3.45.1/org/xerial/sqlite-jdbc/3.45.1.0/sqlite-jdbc-3.45.1.0.jar</url>
+        </library>
+        <library>
+          <url>file://$APPLICATION_CONFIG_DIR$/jdbc-drivers/Xerial SQLiteJDBC/3.45.1/org/slf4j/slf4j-api/1.7.36/slf4j-api-1.7.36.jar</url>
+        </library>
+      </libraries>
     </data-source>
-    <data-source source="LOCAL" name="NEON info" uuid="c574a0c2-bef5-4656-bb33-eeb1ff32e27b">
+    <data-source source="LOCAL" name="NEON" uuid="06b85157-e7b7-482a-918a-2d1d77c7ab96">
       <driver-ref>postgresql</driver-ref>
       <synchronize>true</synchronize>
       <jdbc-driver>org.postgresql.Driver</jdbc-driver>

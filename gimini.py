@@ -1,11 +1,13 @@
+import os
+from dotenv import load_dotenv
 import google.generativeai as genai
 
-genai.configure(api_key='AIzaSyBWfKBE2NCwiCb11oCYXRPEX3d6BEpe_Mg')
-
+load_dotenv()
+genai.configure(api_key=os.getenv('GENAI_API_KEY'))
 
 model = genai.GenerativeModel(model_name="gemini-1.5-flash")
-# title = 'For Vivo S1 Pro Transparent Cxunddo Shockproof Back Cover Phone Case - Camera'
-# # response = model.generate_content([f"Give me only one product identification text of product title: {title}"])
-# response = model.generate_content([f"Translate to Bangla: {title}", "Give me just translated text"])
-# response = model.generate_content([f":Write me one new SEO friendly title based on: {title}"])
-# print(response.text)
+
+if __name__ == '__main__':
+    title = 'A Beautiful chandelier Light'
+    response = model.generate_content([f"I have a title of a product. The title is: {title}. The description of the product"])
+    print(response.text)

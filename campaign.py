@@ -23,12 +23,14 @@ df = pd.read_excel('D:/Downloads/fs.xlsx', header=0, skiprows=[1])
 
 for index, row in df.iterrows():
     price = math.floor(float(''.join(re.findall(r'\d+\.?\d*', row['Recommended Price']))))
-    if price < 50:
+    if price < 40:
         df.drop(index, inplace=True)
+        print("\033[31m" + f'{row["Seller SKU"]} is dropped Price: {price}' + "\033[0m")
         continue
     seller_sku = row['Seller SKU'].lower()
     product_tag, variation = [identical(i.strip()) for i in seller_sku.split('-', 1)]
-    if 'multi' in variation or variation == 'f' or variation == 'fs':
+    # if 'multi' == variation or 'multicolor' == variation or variation == 'f' or variation == 'fs':
+    if variation.lower() in ['multi', 'multicolor', 'f', 'fs']:
         df.loc[index, 'Campaign Price（Mandatory）'] = price
         print(f'{product_tag} ({variation}) = {price}')
     else:

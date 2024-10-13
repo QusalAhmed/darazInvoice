@@ -51,6 +51,7 @@ for index, row in df.iterrows():
             min_price, max_price = cursor.fetchone()
         except TypeError:
             print('No pricing found for', product_tag)
+            df.drop(index, inplace=True)
             continue
     if max_price is None:
         max_price = min_price
