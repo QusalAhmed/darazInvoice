@@ -17,10 +17,18 @@ app_key = os.getenv('OPEN_APP_KEY')
 appSecret = os.getenv('OPEN_APP_SECRET')
 
 
-def identical(sku: str):
-    cursor.execute('SELECT identical_sku FROM identical WHERE sku = ?', (sku,))
-    identical_sku = cursor.fetchone()
-    return identical_sku[0].strip() if identical_sku else sku.strip()
+def get_identical(common_sku):
+    cursor.execute('SELECT identical_sku FROM identical WHERE sku = ?', (common_sku,))
+    db_sku = cursor.fetchone()
+    return db_sku[0].title() if db_sku else common_sku
+
+
+def identical(common_sku):
+    # Check if common sku is full sku
+    if '-' in common_sku:
+        product_tag, variation = [i.split('_')[0].strip() for i in common_sku.split('-', 1)]
+        return f'{get_identical(product_tag)} - {get_identical(variation)}'
+    return get_identical(common_sku)
 
 
 class DarazAPI:
@@ -66,7 +74,7 @@ class DarazAPI:
             product_name = item_id_dict['product_name']
             request.add_api_param('item_id', item_id)
             current_time_utc_plus_8 = int(datetime.now(timezone(timedelta(hours=8))).timestamp() * 1000)
-            time_range = 1 * 24 * 60 * 60 * 1000
+            time_range = 2 * 24 * 60 * 60 * 1000
             start_time = current_time_utc_plus_8 - time_range
             end_time = current_time_utc_plus_8
             request.add_api_param('start_time', start_time)
@@ -87,7 +95,7 @@ class DarazAPI:
     def review(self):
         review_id_list = self.review_ids()
         if not review_id_list:
-            print('No reviews found')
+            print(YELLOW + self.shop_name + RESET, 'No reviews found')
         request = lazop.LazopRequest('/review/seller/list/v2', 'GET')
         for review_id_dict in review_id_list:
             product_name = review_id_dict['product_name']
@@ -110,15 +118,21 @@ class DarazAPI:
                     'product_rating': product_rating,
                 }
 
-                print(review_dict)
+                print(YELLOW + self.shop_name + RESET, review_dict)
 
-    def orders(self, status=None, created_after='2018-02-10T16:00:00+08:00', created_before=None):
+    def orders(self, status=None, created_after='2018-02-10T16:00:00+08:00', created_before=None,
+               update_after=None, update_before=None):
         request = lazop.LazopRequest('/orders/get', 'GET')
-        request.add_api_param('created_after', created_after)
-        if created_before:
-            request.add_api_param('created_before', created_before)
-        if status:
-            request.add_api_param('status', status)
+        params = {
+            'created_after': created_after,
+            'created_before': created_before,
+            'update_after': update_after,
+            'update_before': update_before,
+            'status': status
+        }
+        for key, value in params.items():
+            if value:
+                request.add_api_param(key, value)
         request.add_api_param('limt', '100')
         order_info = []
         order_ids = []
@@ -156,6 +170,8 @@ class DarazAPI:
                         'order_status': order['statuses'][0],
                         'extra_attributes': order['extra_attributes'],
                         'remarks': order['remarks'],
+                        'total_price': float(order['price']) + float(order['shipping_fee']) -
+                                       float(order['voucher']) - float(order['voucher_seller']),
                     }
                 )
             # Break when all orders are fetched
@@ -166,12 +182,12 @@ class DarazAPI:
         return order_ids, order_info
 
     def order(self, shop_name, status):
-        order_ids, order_info = self.orders(status)
+        order_ids, order_info = self.orders(status, created_after='2018-02-10T16:00:00+08:00')
         for order in order_info:
             order_id = order['order_id']
             print(order_id, end=' ')
             for order_details in self.order_item(order_id):
-                sku = order_details['sku']
+                sku = order_details['seller_sku']
                 order_item_id = order_details['order_item_id']
                 package_id = order_details['package_id']
                 print(sku, end=' ')
@@ -191,7 +207,7 @@ class DarazAPI:
         for order_item in response.body['data']:
             order_items.append(
                 {
-                    'sku': order_item['sku'],
+                    'seller_sku': order_item['sku'],
                     'buyer_id': order_item['buyer_id'],
                     'order_item_id': order_item['order_item_id'],
                     'package_id': order_item['package_id'],
@@ -201,6 +217,7 @@ class DarazAPI:
                     'mail_address': order_item['digital_delivery_info'],
                     'tracking_code': order_item['tracking_code'],
                     'shop_sku': order_item['shop_sku'],
+                    'sla_time_stamp': order_item['sla_time_stamp'],
                 }
             )
         return order_items
@@ -220,6 +237,7 @@ class DarazAPI:
     def seller_metrics(self):
         request = lazop.LazopRequest('/seller/metrics/get', 'GET')
         response = self.client.execute(request, self.access_token)
+        print(YELLOW + self.shop_name + RESET, response.body)
         return response.body
 
     def print_awb(self, package_ids: list[str]):
@@ -292,10 +310,18 @@ class DarazAPI:
                     print(GREEN + 'RTS success', rts_response['package_id'] + RESET)
                 else:
                     print(RED + 'RTS failed', response.body + RESET)
+            print(response.body)
 
     def create_product(self, payload):
         request = lazop.LazopRequest('/product/create')
         request.add_api_param('payload', payload)
+        response = self.client.execute(request, self.access_token)
+        return response.body
+
+    def find_product(self, seller_sku_list: list[str]):
+        request = lazop.LazopRequest('/products/get')
+        request.add_api_param('sku_seller_list', seller_sku_list)
+        request.add_api_param('filter', 'live')
         response = self.client.execute(request, self.access_token)
         return response.body
 
@@ -328,18 +354,21 @@ class DarazAPI:
         response = self.client.execute(request, self.access_token)
         trade_order_gmt_create = response.body['data']['reverseOrderLineDTOList'][0]['trade_order_gmt_create']
         trade_order_date = time.strftime('%d %b %Y', time.localtime(trade_order_gmt_create))
+        return_order_line_gmt_create = response.body['data']['reverseOrderLineDTOList'][0][
+            'return_order_line_gmt_create']
         # Check if trade_order_date is between 45 and 60 days from now
         if (datetime.now() - timedelta(days=60)).date() <= datetime.strptime(trade_order_date,
                                                                              '%d %b %Y').date() <= (
-                datetime.now() - timedelta(days=15)).date():
+                datetime.now() - timedelta(days=0)).date():
             trade_order_id = response.body['data']['trade_order_id']
             ofc_status = response.body['data']['reverseOrderLineDTOList'][0]['ofc_status']
             user_id = response.body['data']['reverseOrderLineDTOList'][0]['buyer']['user_id']
-            print(self.shop_name, trade_order_date, trade_order_id, ofc_status, user_id)
+            print(self.shop_name, trade_order_date, trade_order_id, ofc_status, user_id,
+                  return_order_line_gmt_create)
 
     def payout_status(self):
         request = lazop.LazopRequest('/finance/payout/status/get', 'GET')
-        request.add_api_param('created_after', '2024-09-9')
+        request.add_api_param('created_after', '2024-10-12')
         response = self.client.execute(request, self.access_token)
         total = 0
         for statement in response.body['data']:
@@ -348,13 +377,54 @@ class DarazAPI:
             created_at = statement['created_at']
             total += float(payout.split('BDT')[0].strip())
             print(created_at, payout, paid_status)
-        print(GREEN, 'Total:', total, RESET)
+        print(CYAN, 'Total:', total, RESET)
 
     def get_order(self, order_id):
         request = lazop.LazopRequest('/order/get', 'GET')
         request.add_api_param('order_id', order_id)
         response = self.client.execute(request, self.access_token)
-        order_details = {
-            'order_status': response.body['data']['statuses'][0],
-        }
-        return order_details
+        return response.body
+
+    def generate_access_token(self, code):
+        request = lazop.LazopRequest('/auth/token/create', 'GET')
+        request.add_api_param('code', code)
+        response = self.client.execute(request)
+        print(response.body)
+        return response.body
+
+    def open_session(self, order_id) -> str:
+        request = lazop.LazopRequest('/im/session/open', 'GET')
+        request.add_api_param('order_id', order_id)
+        response = self.client.execute(request, self.access_token)
+        return response.body['session_id']
+
+    def send_text_message(self, session_id: str, message):
+        request = lazop.LazopRequest('/im/message/send', 'POST')
+        request.add_api_param("session_id", session_id)
+        request.add_api_param("template_id", "1")
+        request.add_api_param("txt", message)
+        response = self.client.execute(request, self.access_token)
+        return response.body
+
+
+    def send_order_message(self, session_id: str, order_id: str):
+        request = lazop.LazopRequest('/im/message/send', 'POST')
+        request.add_api_param("session_id", session_id)
+        request.add_api_param("template_id", "10007")
+        request.add_api_param("order_id", order_id)
+        response = self.client.execute(request, self.access_token)
+        return response.body
+
+
+    def invite_to_follow_store(self, session_id: str):
+        request = lazop.LazopRequest('/im/message/send', 'POST')
+        request.add_api_param("session_id", session_id)
+        request.add_api_param("template_id", "10010")
+        response = self.client.execute(request, self.access_token)
+        return response.body
+
+    def transaction_details(self, order_id):
+        request = lazop.LazopRequest('/finance/transaction/details/get', 'GET')
+        request.add_api_param('trade_order_id', order_id)
+        response = self.client.execute(request, self.access_token)
+        return response.body

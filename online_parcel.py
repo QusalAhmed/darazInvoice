@@ -75,7 +75,7 @@ class Parcel:
 
     def update_failed_parcel(self, tracking_code):
         self.cursor.execute("UPDATE failed_parcel SET status = TRUE WHERE tracking = %s",
-                            (tracking_code,))
+                            (str(tracking_code),))
         # Check if any row updated
         if self.cursor.rowcount:
             self.conn.commit()
@@ -84,7 +84,7 @@ class Parcel:
 
     # Email notified parcel needs to be collected from hub
     def get_hub_parcel(self):
-        self.cursor.execute('SELECT order_number, shop_name FROM failed_parcel WHERE status = FALSE')
+        self.cursor.execute('SELECT order_number, tracking, shop_name, date_time FROM failed_parcel WHERE status = FALSE')
         return self.cursor.fetchall()
 
     def get_failed_parcel_hub(self):
@@ -96,7 +96,18 @@ class Parcel:
         self.cursor.execute("SELECT order_number FROM daraz_parcel WHERE trackingcode = %s", (tracking_code,))
         return self.cursor.fetchone()[0]
 
+    def undelivered_parcel(self):
+        self.cursor.execute("SELECT * FROM daraz_parcel WHERE \
+                            status != 'Delivered' AND status != 'Package Returned' \
+                            AND date < NOW() - INTERVAL '45 days' \
+                            AND date > NOW() - INTERVAL '60 days' \
+                            ORDER BY shop_name")
+        for index, *data in enumerate(self.cursor.fetchall(), 1):
+            print(f"{index}. {data}")
+
 
 if __name__ == '__main__':
     online_parcel = Parcel()
-    online_parcel.delivered_parcel()
+    # online_parcel.delivered_parcel()
+    # online_parcel.get_hub_parcel()
+    online_parcel.undelivered_parcel()

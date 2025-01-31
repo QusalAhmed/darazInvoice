@@ -29,7 +29,28 @@ def similar_image(image_directory, hash_size=16, cutoff=100):
                 image.show()
                 image = Image.open(os.path.join(image_directory, duplicate[0]))
                 image.show()
-                input('Press Enter to continue...')
+                print('Type d/del to delete the image & press enter to continue: ', end='')
+                if input().lower() in ['d', 'del']:
+                    all_duplicate_file_list = duplicate + [filename]
+                    highest_image_size = 0
+                    highest_image_path = ''
+                    for duplicate_file in all_duplicate_file_list:
+                        duplicate_image_path = os.path.join(image_directory, duplicate_file)
+                        duplicate_image_size = os.path.getsize(duplicate_image_path)
+                        if duplicate_image_size > highest_image_size:
+                            highest_image_size = duplicate_image_size
+                            try:
+                                os.remove(highest_image_path)
+                            except FileNotFoundError:
+                                pass
+                            highest_image_path = duplicate_image_path
+                            print(f'Deleted {highest_image_path}')
+                        else:
+                            try:
+                                os.remove(duplicate_image_path)
+                            except FileNotFoundError:
+                                pass
+                            print(f'Deleted {duplicate_image_path}')
             else:
                 image_hash_dict.update({image_hash: filename})
 

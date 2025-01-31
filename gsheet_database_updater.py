@@ -3,6 +3,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # Local import
 from online_parcel import Parcel
+from colors import *
 
 parcel = Parcel()
 
@@ -22,15 +23,12 @@ spreadsheet = client.open('Daraz Parcel')
 sheet = spreadsheet.worksheet('Failed Delivery')
 for row in sheet.get_all_records(head=1):
     tracking_number = row['Tracking']
-    print(tracking_number)
     if parcel.update_failed_parcel(tracking_number):
-        if not parcel.update_status_by_tracking(tracking_number, 'Package Returned'):
-            order_number = parcel.get_order_number_by_tracking(tracking_number)
-            if not parcel.update_status(order_number, 'Package Returned'):
-                print(f"Could not update to main order database {order_number}")
-        sheet.delete_rows(sheet.find(row['Tracking']).row)
+        if parcel.update_status_by_tracking(tracking_number, 'Package Returned'):
+            sheet.delete_rows(sheet.find(row['Tracking']).row)
+            print(GREEN + f"Updated {tracking_number}" + RESET)
     else:
-        print(f"Could not update to failed parcel database {tracking_number}")
+        print(RED + f"Could not update to failed parcel database {tracking_number}" + RESET)
 
 # Update customer return parcel
 sheet = spreadsheet.worksheet('Return')

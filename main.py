@@ -148,9 +148,9 @@ for file in os.listdir(directory):
                 # raise Exception
             sku = row['sellerSku']
             original_sku = identical(identical(sku.split('-')[0]) + '-' + identical(sku.split('-')[1].split('_')[0]))
-            if row['shippingProvider'] == 'BD-RedX-API':
-                print('Redex:', order_id, row['trackingCode'])
-                original_sku = 'Redex'
+            # if row['shippingProvider'] == 'BD-RedX-API':
+            #     print('Redex:', order_id, row['trackingCode'])
+            #     original_sku = 'Redex'
             order_time = datetime.strptime(row['createTime'], '%d %b %Y %H:%M')
             shipping_cost = row['shippingFee']
             unit_price = row['unitPrice']
